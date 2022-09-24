@@ -30,6 +30,7 @@
 # -- arg10   : Actual environment variable string
 # -- arg11   : y or n (whether user has encrypted files as part of base image or not)
 # -- arg12   : Path to the encrypted files in the image
+# -- arg13   : Passphrase to the enclave signing key (if applicable)
 
 echo printing args $0 $@
 
@@ -57,13 +58,37 @@ create_base_wrapper_image () {
     docker build -f $wrapper_dockerfile -t $app_image_x .
 }
 
+add_encrypted_files_to_manifest(){
+    echo "encrypted_files:$1"
+    IFS=':' # Setting colon as delimiter
+    read -a ef_files_list <<<"$1"
+    unset IFS
+    echo '' >> $app_image_manifest
+    echo '# User Provided Encrypted files' >> $app_image_manifest
+    echo 'fs.mounts = [' >> $app_image_manifest
+    workdir_base_image="$(docker image inspect "$base_image" | jq '.[].Config.WorkingDir')"
+    workdir_base_image=`sed -e 's/^"//' -e 's/"$//' <<<"$workdir_base_image"`
+    for i in "${ef_files_list[@]}"
+    do
+        encrypted_files_string=''
+        encrypted_files_string+='  { path = "'$workdir_base_image'/'
+        encrypted_files_string+=$i'", '
+        encrypted_files_string+='uri = "file:'
+        encrypted_files_string+=$i'", '
+        encrypted_files_string+='type = "encrypted" },'
+        echo "$encrypted_files_string" >> $app_image_manifest
+    done
+    echo "]" >> $app_image_manifest
+}
+
 create_gsc_image () {
     # Download GSC that has dcap already enabled
     echo ""
     cd ..
     rm -rf gsc >/dev/null 2>&1
-    git clone --depth 1 https://github.com/gramineproject/gsc.git
-    if [ $signing_key_path != 'no-sign' ]; then
+    # TODO : Change to master once PR https://github.com/gramineproject/gsc/pull/88 is merged
+    git clone https://github.com/aneessahib/gsc.git
+    if [ $signing_input != 'no-sign' ]; then
         cp $signing_key_path gsc/enclave-key.pem
     fi
 
@@ -71,6 +96,8 @@ create_gsc_image () {
     rm enclave-key.pem >/dev/null 2>&1
 
     cd gsc
+    # TODO : Change to master once PR https://github.com/gramineproject/gsc/pull/88 is merged
+    # git checkout aneessahib/sign_with_pw
     cp ../util/config.yaml.template config.yaml
     sed -i 's|ubuntu:.*|'$distro'"|' config.yaml
 
@@ -90,8 +117,13 @@ create_gsc_image () {
     docker tag gsc-$app_image_x-unsigned gsc-$base_image-unsigned
     docker rmi gsc-$app_image_x-unsigned
     docker rmi -f $app_image_x >/dev/null 2>&1
-    if [ $signing_key_path != 'no-sign' ]; then
-        ./gsc sign-image $base_image enclave-key.pem
+
+    if [ $signing_input != 'no-sign' ]; then
+        password_arg=''
+        if [ "$signing_input" != "test-key" ]; then
+            password_arg="-p $2"
+        fi
+        ./gsc sign-image $base_image enclave-key.pem $password_arg
         docker rmi -f gsc-$base_image-unsigned >/dev/null 2>&1
         ./gsc info-image gsc-$base_image
     fi
@@ -113,8 +145,11 @@ fetch_base_image_config () {
 
 # Signing key
 echo ""
-signing_key_path="$4"
-if [ "$signing_key_path" = "test-key" ]; then
+read -r signing_input signing_key_path <<<$(echo "$4 $4")
+echo "signing_key_path2=$signing_key_path"
+echo "signing_input2=$signing_input"
+
+if [ "$signing_input" = "test-key" ]; then
     echo "Generating signing key"
     openssl genrsa -3 -out ../enclave-key.pem 3072
     signing_key_path="enclave-key.pem"
@@ -153,6 +188,12 @@ echo "$complete_binary_cmd" >> $entrypoint_script
 if [ "$6" = "test-image" ]; then
     grep -qxF 'sgx.file_check_policy = "allow_all_but_log"' $app_image_manifest ||
      echo 'sgx.file_check_policy = "allow_all_but_log"' >> $app_image_manifest
+
+    if [[ "$start" = "pytorch" ]]; then
+        encrypted_files="classes.txt:input.jpg:alexnet-pretrained.pt:result.txt"
+        add_encrypted_files_to_manifest $encrypted_files
+        echo 'fs.insecure__keys.default = "ffeeddccbbaa99887766554433221100"' >> $app_image_manifest
+    fi
     create_base_wrapper_image
     # Exit from $start directory
     create_gsc_image $7
@@ -180,15 +221,15 @@ fi
 env_required=$9
 if [ "$env_required" = "y" ]; then
     envs=${10}
-    IFS=',' # Setting comma as delimiter
-    read -a env_list <<<"$envs" # Reading str as an array as tokens separated by IFS
+    echo "ENVs:$envs"
+
     echo '' >> $app_image_manifest
     echo '# User Provided Environment Variables' >> $app_image_manifest
-    for i in "${env_list[@]}"
-    do
-        env_string='loader.env.'
-        env_string+=$i
-    echo "$env_string" >> $app_image_manifest
+
+    re_pattern='-e[[:space:]]*([^[:space:].=]*="[^"]*")'
+    while [[ $envs =~ $re_pattern ]]; do
+        echo "loader.env.${BASH_REMATCH[1]}" >> $app_image_manifest
+        envs=${envs#*${BASH_REMATCH[1]}}
     done
     echo ""
 fi
@@ -197,30 +238,12 @@ fi
 encrypted_files_required=${11}
 if [ "$encrypted_files_required" = "y" ]; then
     ef_files=${12}
-    IFS=':' # Setting colon as delimiter
-    read -a ef_files_list <<<"$ef_files"
-    unset IFS
-    echo '' >> $app_image_manifest
-    echo '# User Provided Encrypted files' >> $app_image_manifest
-    echo 'fs.mounts = [' >> $app_image_manifest
-    workdir_base_image="$(docker image inspect "$base_image" | jq '.[].Config.WorkingDir')"
-    workdir_base_image=`sed -e 's/^"//' -e 's/"$//' <<<"$workdir_base_image"`
-    for i in "${ef_files_list[@]}"
-    do
-        encrypted_files_string=''
-        encrypted_files_string+='  { path = "'$workdir_base_image'/'
-        encrypted_files_string+=$i'", '
-        encrypted_files_string+='uri = "file:'
-        encrypted_files_string+=$i'", '
-        encrypted_files_string+='type = "encrypted" },'
-        echo "$encrypted_files_string" >> $app_image_manifest
-    done
-    echo "]" >> $app_image_manifest
+    add_encrypted_files_to_manifest ${12}
     sed -i 's|.*SECRET_PROVISION_SET_KEY.*|loader.env.SECRET_PROVISION_SET_KEY = "default"|' $app_image_manifest
 fi
 
 echo ""
-if [[ "$7" = "y" && "$signing_key_path" != "test-key" && "$start" = "redis" ]]; then
+if [[ "$7" = "y" && "$signing_input" != "test-key" && "$start" = "redis" ]]; then
     echo 'loader.pal_internal_mem_size = "192M"' >> $app_image_manifest
 fi
 
@@ -228,4 +251,4 @@ create_base_wrapper_image
 if [ "$attestation_required" = "y" ]; then
     rm ca.crt
 fi
-create_gsc_image $7
+create_gsc_image $7 ${13}

@@ -92,11 +92,20 @@ def print_correct_usage(win, arg):
     win.getch()
     sys.exit(1)
 
-def update_user_input():
+def update_user_input(secure=False):
     editwin = curses.newwin(user_input_height, user_input_width, user_input_start_y, 0)
     editwin.bkgd(' ', curses.color_pair(2) | curses.A_BOLD)
     box = Textbox(editwin)
-    box.edit()
+    while 1:
+        ch = box.win.getch()
+        if not ch:
+            continue
+        if not box.do_command(ch):
+            break
+        if secure:
+            [y, x] = box.win.getyx()
+            box.win.addstr(y, x - 1, '*')
+            box.win.refresh()
     editwin.refresh()
     user_input = box.gather().strip().replace("\n", "")
     editwin.erase()
@@ -207,7 +216,7 @@ def fetch_file_from_user(file, default, user_console):
 #   the user can sign it later on.
 # - no input: expanded to 'test-key', results in the generation of a test key. The generated image
 #   should not be used in production!
-def get_enclave_signing_input(user_console):
+def get_enclave_signing_input(user_console, guide_win):
     sign_file = update_user_input()
     while not path.exists(sign_file):
         if sign_file == 'n':
@@ -217,14 +226,19 @@ def get_enclave_signing_input(user_console):
             key_path = 'test-key'
             return key_path
         else:
+            user_console.erase()
+            update_user_and_commentary_win_array(user_console, guide_win, key_prompt, signing_key_help)
             update_user_error_win(user_console, file_nf_error.format(sign_file))
             sign_file = update_user_input()
     return sign_file
 
-def get_attestation_input(user_console):
+def get_attestation_input(user_console, guide_win):
     attestation_input = update_user_input()
     while True:
         while (attestation_input not in ['test', 'done', '']):
+            user_console.erase()
+            update_user_and_commentary_win_array(user_console, guide_win, attestation_prompt,
+             attestation_help)
             update_user_error_win(user_console, 'Invalid option specified')
             attestation_input = update_user_input()
         if attestation_input == 'done':
@@ -232,6 +246,9 @@ def get_attestation_input(user_console):
              and path.exists('verifier/ssl/server.crt')
              and path.exists('verifier/ssl/server.key')):
                 return attestation_input
+            user_console.erase()
+            update_user_and_commentary_win_array(user_console, guide_win, attestation_prompt,
+             attestation_help)
             update_user_error_win(user_console, 'One or more files does not exist at'
             ' verifier/ssl/ directory')
             attestation_input = update_user_input()
@@ -297,72 +314,85 @@ def main(stdscr, argv):
     update_user_and_commentary_win_array(user_console, guide_win, introduction, index)
     update_user_input()
 
-    kernel_name=subprocess.check_output(["uname -r"],encoding='utf8',shell=True)
+    kernel_name=subprocess.check_output(["uname -r"], encoding='utf8', shell=True)
     if 'azure' not in kernel_name:
         update_user_and_commentary_win_array(user_console, guide_win, azure_warning, azure_help)
         update_user_input()
 
-    # Obtain Distro version
+    # 1 Obtain Distro version
     update_user_and_commentary_win_array(user_console, guide_win, distro_prompt, distro_help)
     distro_option = update_user_input()
     if distro_option == '2':
         distro = 'ubuntu:20.04'
 
-    # Obtain enclave signing key
-    update_user_and_commentary_win_array(user_console, guide_win, key_prompt, signing_key_help)
-    key_path = get_enclave_signing_input(user_console)
-    config = ''
-    if key_path == 'test-key':
-        config = 'test'
-
-    # Remote Attestation with RA-TLS
-    update_user_and_commentary_win_array(user_console, guide_win, attestation_prompt,
-     attestation_help)
-
-    attestation_input = get_attestation_input(user_console)
-    ca_cert_path = ''
-    verifier_server = '<verifier-dns-name:port>'
-    attestation_required = ''
-    host_net = ''
-    if attestation_input == 'done':
-        attestation_required = 'y'
-        ca_cert_path = ssl_folder_path_on_host+'/ca.crt'
-
-    if attestation_input == 'test':
-        ca_cert_path, verifier_server = ssl_folder_path_on_host+'/ca.crt', '"localhost:4433"'
-        host_net, config = '--net=host', 'test'
-        attestation_required = 'y'
-
-    # Provide arguments
+    # 2. Provide arguments
     update_user_and_commentary_win_array(user_console, guide_win, arg_input, arg_help)
     args = update_user_input()
 
-    # Provide enviroment variables
+    # 3. Provide enviroment variables
     update_user_and_commentary_win_array(user_console, guide_win, env_input, env_help)
     env_required = 'n'
     envs = update_user_input()
     if envs:
         env_required = 'y'
 
+    # 4. Provide encrypted files and Key Provisioning
     ef_required = 'n'
     encryption_key = ''
     enc_key_path_in_verifier = ''
     encrypted_files = ''
+    update_user_and_commentary_win_array(user_console, guide_win, encrypted_files_prompt,
+        encypted_files_help)
+    encrypted_files = update_user_input()
+
+    if encrypted_files:
+        edit_user_win(user_console, encryption_key_prompt)
+        encryption_key = fetch_file_from_user('', '', user_console)
+        encryption_key_name = os.path.basename(encryption_key)
+        enc_key_path_in_verifier = enc_key_path.format(encryption_key_name)
+        ef_required = 'y'
+
+    # 5. Remote Attestation with RA-TLS
+    ca_cert_path = ''
+    verifier_server = '<verifier-dns-name:port>'
+    attestation_required = 'n'
+    host_net = ''
+    update_user_and_commentary_win_array(user_console, guide_win, attestation_prompt,
+     attestation_help)
+    while True:
+        attestation_input = get_attestation_input(user_console, guide_win)
+        if attestation_input == 'done':
+            attestation_required = 'y'
+            ca_cert_path = ssl_folder_path_on_host+'/ca.crt'
+
+        elif attestation_input == 'test':
+            ca_cert_path, verifier_server = ssl_folder_path_on_host+'/ca.crt', '"localhost:4433"'
+            host_net, config = '--net=host', 'test'
+            attestation_required = 'y'
+
+        if ef_required == 'y' and attestation_required == 'n':
+            user_console.erase()
+            update_user_and_commentary_win_array(user_console, guide_win, attestation_prompt,
+             attestation_help)
+            error = ('You must use Remote Attestation as you are using encrypted files.')
+            update_user_error_win(user_console, error)
+            continue
+
+        break
+
+    # 6. Obtain enclave signing key
+    update_user_and_commentary_win_array(user_console, guide_win, key_prompt, signing_key_help)
+    key_path = get_enclave_signing_input(user_console, guide_win)
+    config = ''
+    passphrase = ''
+    if key_path == 'test-key':
+        config = 'test'
+    elif key_path != "test-key" and key_path != "no-sign":
+        edit_user_win(user_console, ">> Please enter the passphrase for the signing key")
+        passphrase = update_user_input(secure=True)
+
+    # 7. Generation of the final curated GSC image
     if attestation_required == 'y':
-        # Provide encrypted files
-        update_user_and_commentary_win_array(user_console, guide_win, encrypted_files_prompt,
-         encypted_files_help)
-        encrypted_files = update_user_input()
-
-        # Provide encryption key
-        if encrypted_files:
-            edit_user_win(user_console, encryption_key_prompt)
-            encryption_key = fetch_file_from_user('', '', user_console)
-            encryption_key_name = os.path.basename(encryption_key)
-            enc_key_path_in_verifier = enc_key_path.format(encryption_key_name)
-            ef_required = 'y'
-
-    if ca_cert_path:
         os.chdir('verifier')
         verifier_log_file_pointer = open(verifier_log_file, 'w')
         update_user_and_commentary_win_array(user_console, guide_win, [verifier_build_messg],
@@ -378,13 +408,14 @@ def main(stdscr, argv):
                                          [log_progress.format(log_file)])
     subprocess.call(['util/curation_script.sh', workload_type, base_image_name, distro,
                      key_path, args, attestation_required, debug_flag, ca_cert_path, env_required,
-                     envs, ef_required, encrypted_files], stdout=log_file_pointer,
+                     envs, ef_required, encrypted_files, passphrase], stdout=log_file_pointer,
                      stderr=log_file_pointer)
     image = gsc_app_image
     if key_path == 'no-sign':
         image = gsc_app_image_unsigned
     check_image_creation_success(user_console, docker_socket, image, log_file)
 
+    # 8. Generation of docker run command(s)
     commands_fp = open(commands_file, 'w')
     if attestation_required == 'y':
         debug_enclave_env_ver_ext = ''
@@ -434,7 +465,10 @@ def main(stdscr, argv):
     user_info = [image_ready_messg.format(gsc_app_image), commands_file + color_set,
      app_exit_messg]
     if key_path == 'no-sign':
-        commands_fp.write(sign_instr.format(base_image_name, base_image_name))
+        image_info_attest = ''
+        if attestation_required == 'y':
+            image_info_attest = image_info
+        commands_fp.write(sign_instr.format(image_info_attest, base_image_name, gsc_app_image))
     commands_fp.write(run_command)
     commands_fp.close()
 

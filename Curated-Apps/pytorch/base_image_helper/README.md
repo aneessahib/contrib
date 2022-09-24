@@ -27,4 +27,4 @@ commands
 - Execute `docker cp <container id or name>:/workspace/result.txt .` to fetch results from inside
   docker container to local machine.
 - Execute `gramine-sgx-pf-crypt decrypt -w wrap_key -i result.txt -o result_plaintext.txt` to
-  decrypt the results. Make sure `wrap-key` path in decrypt command is correct.
+  decrypt the results. Make sure `wrap_key` path in decrypt command is correct.
