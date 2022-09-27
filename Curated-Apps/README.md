@@ -59,24 +59,61 @@ applications with Gramine.
 
 ## Contents
 
-```sh
+```bash
     .
     |-- curate.py               # Entry file for curation that the user runs as explained above
     |-- util/                   # Helper scripts and files that curate.py uses
     |-- verifier/               # Contents to build attestaton verifier image
     |-- workloads/              # Sample curated applications for select set of workloads
 ```
+## Contents
 
-<pre>
+```bash
+    |-- curate.py               # Entry file for curation that the user runs as explained above
+    |-- util/                   # Helper scripts and files that curate.py uses
+    |-- verifier/               # Contents to build attestaton verifier image
+    |-- workloads/              # Sample curated applications for select set of workloads
+```
+## Contents
+
+```bash
+|-- curate.py               # Entry file for curation that the user runs as explained above
+|-- util/                   # Helper scripts and files that curate.py uses
+|-- verifier/               # Contents to build attestaton verifier image
+|-- workloads/              # Sample curated applications for select set of workloads
+```
+## Contents
+
+```bash
 .
-├── curate.py
-├── README.md
-├── util
-│   ├── config.yaml.template
-│   ├── constants.py
-│   ├── curation_script.sh
-├── verifier
-│   ├── helper.sh
-│   ├── verifier.dockerfile.template
-└── workloads
-</pre>
+|-- curate.py               # Entry file for curation that the user runs as explained above
+|-- util/                   # Helper scripts and files that curate.py uses
+|-- verifier/               # Contents to build attestaton verifier image
+|-- workloads/              # Sample curated applications for select set of workloads
+```
+## Contents
+
+```bash
+ .
+|-- curate.py               # Entry file for curation that the user runs as explained above
+|-- util/                   # Helper scripts and files that curate.py uses
+|-- verifier/               # Contents to build attestaton verifier image
+|-- workloads/              # Sample curated applications for select set of workloads
+```
+## Contents
+
+```
+.
+|-- curate.py               # Entry file for curation that the user runs as explained above
+|-- util/                   # Helper scripts and files that curate.py uses
+|-- verifier/               # Contents to build attestaton verifier image
+|-- workloads/              # Sample curated applications for select set of workloads
+```
+## Contents
+
+```
+|-- curate.py               # Entry file for curation that the user runs as explained above
+|-- util/                   # Helper scripts and files that curate.py uses
+|-- verifier/               # Contents to build attestaton verifier image
+|-- workloads/              # Sample curated applications for select set of workloads
+```
