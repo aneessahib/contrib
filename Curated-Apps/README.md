@@ -102,18 +102,82 @@ applications with Gramine.
 ```
 ## Contents
 
-```
+
+|-- curate.py               # Entry file for curation that the user runs as explained above
+|-- util/                   # Helper scripts and files that curate.py uses
+|-- verifier/               # Contents to build attestaton verifier image
+|-- workloads/              # Sample curated applications for select set of workloads
+
+## Contents
+
 .
 |-- curate.py               # Entry file for curation that the user runs as explained above
 |-- util/                   # Helper scripts and files that curate.py uses
 |-- verifier/               # Contents to build attestaton verifier image
 |-- workloads/              # Sample curated applications for select set of workloads
-```
+
+
 ## Contents
 
+```bash
+├── app
+│   ├── css
+│   │   ├── **/*.css
+│   ├── favicon.ico
+│   ├── images
+│   ├── index.html
+│   ├── js
+│   │   ├── **/*.js
+│   └── partials/template
+├── dist (or build)
+├── node_modules
+├── bower_components (if using bower)
+├── test
+├── Gruntfile.js/gulpfile.js
+├── README.md
+├── package.json
+├── bower.json (if using bower)
+└── .gitignore
 ```
-|-- curate.py               # Entry file for curation that the user runs as explained above
-|-- util/                   # Helper scripts and files that curate.py uses
-|-- verifier/               # Contents to build attestaton verifier image
-|-- workloads/              # Sample curated applications for select set of workloads
-```
+
+
+.
+├── app
+│   ├── css
+│   │   ├── **/*.css
+│   ├── favicon.ico
+│   ├── images
+│   ├── index.html
+│   ├── js
+│   │   ├── **/*.js
+│   └── partials/template
+├── dist (or build)
+├── node_modules
+├── bower_components (if using bower)
+├── test
+├── Gruntfile.js/gulpfile.js
+├── README.md
+├── package.json
+├── bower.json (if using bower)
+└── .gitignore
+
+
+
+├── app
+│   ├── css
+│   │   ├── **/*.css
+│   ├── favicon.ico
+│   ├── images
+│   ├── index.html
+│   ├── js
+│   │   ├── **/*.js
+│   └── partials/template
+├── dist (or build)
+├── node_modules
+├── bower_components (if using bower)
+├── test
+├── Gruntfile.js/gulpfile.js
+├── README.md
+├── package.json
+├── bower.json (if using bower)
+└── .gitignore
