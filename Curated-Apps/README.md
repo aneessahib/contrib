@@ -79,5 +79,4 @@ applications with Gramine.
 │   ├── helper.sh
 │   ├── verifier.dockerfile.template
 └── workloads
-```
 </pre>
