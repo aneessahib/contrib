@@ -66,3 +66,17 @@ applications with Gramine.
     |-- verifier/               # Contents to build attestaton verifier image
     |-- workloads/              # Sample curated applications for select set of workloads
 ```
+
+```bash
+.
+├── curate.py
+├── README.md
+├── util
+│   ├── config.yaml.template
+│   ├── constants.py
+│   ├── curation_script.sh
+├── verifier
+│   ├── helper.sh
+│   ├── verifier.dockerfile.template
+└── workloads
+```
