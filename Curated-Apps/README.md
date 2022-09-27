@@ -67,7 +67,7 @@ applications with Gramine.
     |-- workloads/              # Sample curated applications for select set of workloads
 ```
 
-```bash
+<pre>
 .
 ├── curate.py
 ├── README.md
@@ -80,3 +80,4 @@ applications with Gramine.
 │   ├── verifier.dockerfile.template
 └── workloads
 ```
+</pre>
