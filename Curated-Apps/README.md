@@ -59,7 +59,7 @@ applications with Gramine.
 
 ## Contents
 
-```
+```sh
     .
     |-- curate.py               # Entry file for curation that the user runs as explained above
     |-- util/                   # Helper scripts and files that curate.py uses
