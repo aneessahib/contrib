@@ -5,47 +5,52 @@
 # This script takes input from curate.py and creates GSC image.
 # The script can be called either for creating a non-production test image or a custom GSC image.
 #
-# The test image is created when user runs `python ./curate.py <workload type> <user_image> test` command.
-# The image hence created will be signed with a test enclave key, and will not support attestation.
+# The test image is created when user runs `python ./curate.py <workload type> <user_image> test`
+# command. The image hence created will be signed with a test enclave key, and will not support
+# attestation.
 #
-# In case of test image, the script takes 7 input parameters, whereas in case of custom image 12
+# In case of test image, the script takes 7 input parameters, whereas in case of custom image 13
 # parameters are passed from curate.py.
 #
 # curate.py calls this script after taking all the user inputs. This script does not interact with
 # user, it just processes the input received from curate.py and produces the final GSC image.
 
 # The input parameters in sequence are below:
-# -- arg1    : workload type e.g., redis or pytorch
-# -- arg2    : base_image_name e.g., name of the base image to be graminized
-# -- arg3    : distro e.g., ubuntu:18.04 or ubuntu:20.04
+# -- arg1    : workload type e.g. redis or pytorch
+# -- arg2    : base_image_name e.g. name of the base image to be graminized
+# -- arg3    : distro e.g. ubuntu:18.04 or ubuntu:20.04
 # -- arg4    : path to the enclave signing key or
-#              'test-key' string to generate test signing key
-#              'no-sign' string to generate unsigned unsigned GSC image
+#              'test' string to generate test signing key
 # -- arg5    : string with command-line arguments (hard-coded in Docker image via Gramine manifest)
-# -- arg6    : 'test-image' string to create a non production GSC image
-# -- arg6    : y or n (whether attestation required or not)
-# -- arg7    : y or n (whether user want to build GSC with debug or not)
+# -- arg6    : 'test-image' string to create a non production GSC image when curate.py is run in
+#            :  test mode
+#            : y or n (attestation required?) in case of custom image creation
+# -- arg7    : y or n (build GSC with debug?)
 # -- arg8    : verifier's ca certificate path
-# -- arg9    : y or n (whether user has environment variables or not)
+# -- arg9    : y or n (environment variables available?)
 # -- arg10   : Actual environment variable string
-# -- arg11   : y or n (whether user has encrypted files as part of base image or not)
+# -- arg11   : y or n (encrypted files as part of base image?)
 # -- arg12   : Path to the encrypted files in the image
 # -- arg13   : Passphrase to the enclave signing key (if applicable)
 
 echo printing args $0 $@
 
 start=$1
-wrapper_dockerfile=$start"-gsc.dockerfile"
-app_image_manifest=$start".manifest"
+wrapper_dockerfile=$start'-gsc.dockerfile'
+app_image_manifest=$start'.manifest'
 
-cd $start
-cp $wrapper_dockerfile".template" $wrapper_dockerfile
-cp $app_image_manifest".template" $app_image_manifest
+CUR_DIR=$(pwd)
+WORKLOAD_DIR=$CUR_DIR'/workloads/'$start
+cd $WORKLOAD_DIR
+mkdir $CUR_DIR'/test' >/dev/null 2>&1
+
+cp $wrapper_dockerfile'.template' $wrapper_dockerfile
+cp $app_image_manifest'.template' $app_image_manifest
 
 base_image="$2"
 distro="$3"
 # Set base image name in the dockerfile
-sed -i 's|From.*|From '$base_image'|' $wrapper_dockerfile
+sed -i 's|^From <base_image_name>$|From '$base_image'|' $wrapper_dockerfile
 
 if [[ "$base_image" == *":"* ]]; then
     app_image_x=$(echo $base_image | sed "s/:/_x:/")
@@ -59,7 +64,6 @@ create_base_wrapper_image () {
 }
 
 add_encrypted_files_to_manifest(){
-    echo "encrypted_files:$1"
     IFS=':' # Setting colon as delimiter
     read -a ef_files_list <<<"$1"
     unset IFS
@@ -70,11 +74,7 @@ add_encrypted_files_to_manifest(){
     workdir_base_image=`sed -e 's/^"//' -e 's/"$//' <<<"$workdir_base_image"`
     for i in "${ef_files_list[@]}"
     do
-        encrypted_files_string=''
-        encrypted_files_string+='  { path = "'$workdir_base_image'/'
-        encrypted_files_string+=$i'", '
-        encrypted_files_string+='uri = "file:'
-        encrypted_files_string+=$i'", '
+        encrypted_files_string='  { path = "'$workdir_base_image'/'$i'", uri = "file:'$i'", '
         encrypted_files_string+='type = "encrypted" },'
         echo "$encrypted_files_string" >> $app_image_manifest
     done
@@ -83,21 +83,13 @@ add_encrypted_files_to_manifest(){
 
 create_gsc_image () {
     # Download GSC that has dcap already enabled
-    echo ""
-    cd ..
+    echo
+    cd $CUR_DIR
     rm -rf gsc >/dev/null 2>&1
-    # TODO : Change to master once PR https://github.com/gramineproject/gsc/pull/88 is merged
-    git clone https://github.com/aneessahib/gsc.git
-    if [ $signing_input != 'no-sign' ]; then
-        cp $signing_key_path gsc/enclave-key.pem
-    fi
-
-    # Delete the signing key created by the script
-    rm enclave-key.pem >/dev/null 2>&1
+    git clone https://github.com/gramineproject/gsc.git
+    cp $signing_key_path gsc/enclave-key.pem
 
     cd gsc
-    # TODO : Change to master once PR https://github.com/gramineproject/gsc/pull/88 is merged
-    # git checkout aneessahib/sign_with_pw
     cp ../util/config.yaml.template config.yaml
     sed -i 's|ubuntu:.*|'$distro'"|' config.yaml
 
@@ -106,35 +98,32 @@ create_gsc_image () {
     docker rmi -f gsc-$base_image-unsigned >/dev/null 2>&1
 
     if [ "$1" = "y" ]; then
-        ./gsc build -d $app_image_x  ../$start/$app_image_manifest
+        ./gsc build -d $app_image_x  $WORKLOAD_DIR/$app_image_manifest
     else
-        ./gsc build $app_image_x ../$start/$app_image_manifest
+        ./gsc build $app_image_x $WORKLOAD_DIR/$app_image_manifest
     fi
 
-    echo ""
-    echo ""
-
+    echo
     docker tag gsc-$app_image_x-unsigned gsc-$base_image-unsigned
+    password_arg=''
+    if [[ "$signing_input" != "test" && "$2" != "" ]]; then
+        password_arg="-p $2"
+    fi
+    ./gsc sign-image $base_image enclave-key.pem $password_arg
+    docker rmi -f gsc-$base_image-unsigned >/dev/null 2>&1
     docker rmi gsc-$app_image_x-unsigned
     docker rmi -f $app_image_x >/dev/null 2>&1
-
-    if [ $signing_input != 'no-sign' ]; then
-        password_arg=''
-        if [ "$signing_input" != "test-key" ]; then
-            password_arg="-p $2"
-        fi
-        ./gsc sign-image $base_image enclave-key.pem $password_arg
-        docker rmi -f gsc-$base_image-unsigned >/dev/null 2>&1
-        ./gsc info-image gsc-$base_image
-    fi
+    ./gsc info-image gsc-$base_image
 
     cd ../
     rm -rf gsc >/dev/null 2>&1
+    rm -rf $CUR_DIR'/test' >/dev/null 2>&1
 }
 
 fetch_base_image_config () {
     base_image_config="$(docker image inspect "$base_image" | jq '.[].Config.'$1'')"
-    if [[ "$base_image_config" = "null" || "$base_image_config" = "Null" || "$base_image_config" = "NULL" ]]; then
+    if [[ "$base_image_config" = "null" || "$base_image_config" = "Null" ||
+          "$base_image_config" = "NULL" ]]; then
         config_string=''
     else
         base_image_config=$(echo $base_image_config | sed 's/[][]//g')
@@ -146,13 +135,10 @@ fetch_base_image_config () {
 # Signing key
 echo ""
 read -r signing_input signing_key_path <<<$(echo "$4 $4")
-echo "signing_key_path2=$signing_key_path"
-echo "signing_input2=$signing_input"
-
-if [ "$signing_input" = "test-key" ]; then
-    echo "Generating signing key"
-    openssl genrsa -3 -out ../enclave-key.pem 3072
-    signing_key_path="enclave-key.pem"
+if [ "$signing_input" = "test" ]; then
+    echo 'Generating signing key'
+    openssl genrsa -3 -out $CUR_DIR'/test/enclave-key.pem' 3072
+    signing_key_path=$CUR_DIR'/test/enclave-key.pem'
     grep -qxF 'sgx.file_check_policy = "allow_all_but_log"' $app_image_manifest ||
      echo 'sgx.file_check_policy = "allow_all_but_log"' >> $app_image_manifest
 fi
@@ -180,9 +166,9 @@ rm -f $entrypoint_script >/dev/null 2>&1
 touch $entrypoint_script
 
 # Copying the complete binary string to the entrypoint script file
-echo "#!/bin/bash" >> $entrypoint_script
-echo "" >> $entrypoint_script
-echo "$complete_binary_cmd" >> $entrypoint_script
+echo '#!/bin/bash' >> $entrypoint_script
+echo '' >> $entrypoint_script
+echo $complete_binary_cmd >> $entrypoint_script
 
 # Test image creation
 if [ "$6" = "test-image" ]; then
@@ -190,12 +176,13 @@ if [ "$6" = "test-image" ]; then
      echo 'sgx.file_check_policy = "allow_all_but_log"' >> $app_image_manifest
 
     if [[ "$start" = "pytorch" ]]; then
-        encrypted_files="classes.txt:input.jpg:alexnet-pretrained.pt:result.txt"
+        encrypted_files='classes.txt:input.jpg:alexnet-pretrained.pt:result.txt'
         add_encrypted_files_to_manifest $encrypted_files
-        echo 'fs.insecure__keys.default = "ffeeddccbbaa99887766554433221100"' >> $app_image_manifest
+        var=$(xxd -p ../pytorch/base_image_helper/encryption_key)
+        echo 'fs.insecure__keys.default = "'$var'"' >> $app_image_manifest
     fi
+
     create_base_wrapper_image
-    # Exit from $start directory
     create_gsc_image $7
     exit 1
 fi
@@ -204,12 +191,14 @@ fi
 attestation_required=$6
 if [ "$attestation_required" = "y" ]; then
     ca_cert_path=$8
-    cp ../$ca_cert_path ca.crt
+    cp $CUR_DIR/$ca_cert_path ca.crt
     sed -i 's|.*ca.crt.*|COPY ca.crt /ca.crt|' $wrapper_dockerfile
     echo '' >> $app_image_manifest
     echo '# Attestation related entries' >> $app_image_manifest
     echo 'sgx.remote_attestation = "dcap"' >> $app_image_manifest
-    echo 'loader.env.LD_PRELOAD = "/gramine/meson_build_output/lib/x86_64-linux-gnu/libsecret_prov_attest.so"' >> $app_image_manifest
+    echo 'loader.env.LD_PRELOAD = ' \
+    '"/gramine/meson_build_output/lib/x86_64-linux-gnu/libsecret_prov_attest.so"' >> \
+    $app_image_manifest
     echo 'loader.env.SECRET_PROVISION_SERVERS = { passthrough = true }' >> $app_image_manifest
     echo 'loader.env.SECRET_PROVISION_CONSTRUCTOR = "1"' >> $app_image_manifest
     echo 'loader.env.SECRET_PROVISION_CA_CHAIN_PATH = "/ca.crt"' >> $app_image_manifest
@@ -221,8 +210,6 @@ fi
 env_required=$9
 if [ "$env_required" = "y" ]; then
     envs=${10}
-    echo "ENVs:$envs"
-
     echo '' >> $app_image_manifest
     echo '# User Provided Environment Variables' >> $app_image_manifest
 
@@ -239,11 +226,12 @@ encrypted_files_required=${11}
 if [ "$encrypted_files_required" = "y" ]; then
     ef_files=${12}
     add_encrypted_files_to_manifest ${12}
-    sed -i 's|.*SECRET_PROVISION_SET_KEY.*|loader.env.SECRET_PROVISION_SET_KEY = "default"|' $app_image_manifest
+    sed -i 's|.*SECRET_PROVISION_SET_KEY.*|loader.env.SECRET_PROVISION_SET_KEY = "default"|' \
+    $app_image_manifest
 fi
 
 echo ""
-if [[ "$7" = "y" && "$signing_input" != "test-key" && "$start" = "redis" ]]; then
+if [[ "$7" = "y" && "$signing_input" != "test" && "$start" = "redis" ]]; then
     echo 'loader.pal_internal_mem_size = "192M"' >> $app_image_manifest
 fi
 
